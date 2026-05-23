@@ -3,6 +3,23 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { motion, AnimatePresence } from "framer-motion";
+import { 
+  CheckCircle2, 
+  XCircle, 
+  Clock, 
+  Trash2, 
+  Lock, 
+  Copy, 
+  Check, 
+  ArrowLeft,
+  Calendar,
+  Building,
+  Box,
+  CornerDownRight,
+  TrendingUp,
+  Loader2
+} from "lucide-react";
 
 interface ReservationDetail {
   id: string;
@@ -25,43 +42,6 @@ function formatCountdown(seconds: number): string {
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
-function getStatusConfig(status: string) {
-  switch (status) {
-    case "PENDING":
-      return {
-        label: "Pending",
-        color: "text-warning",
-        bg: "bg-warning/10",
-        border: "border-warning/20",
-        icon: "⏳",
-      };
-    case "CONFIRMED":
-      return {
-        label: "Confirmed",
-        color: "text-success",
-        bg: "bg-success/10",
-        border: "border-success/20",
-        icon: "✅",
-      };
-    case "RELEASED":
-      return {
-        label: "Released",
-        color: "text-destructive",
-        bg: "bg-destructive/10",
-        border: "border-destructive/20",
-        icon: "🔓",
-      };
-    default:
-      return {
-        label: status,
-        color: "text-muted-foreground",
-        bg: "bg-muted",
-        border: "border-border",
-        icon: "❓",
-      };
-  }
-}
-
 export default function ReservationPage() {
   const params = useParams();
   const router = useRouter();
@@ -72,6 +52,8 @@ export default function ReservationPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [hasExpired, setHasExpired] = useState(false);
+  const [isCopied, setIsCopied] = useState(false);
+  const [shakeTimer, setShakeTimer] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchReservation = useCallback(async () => {
@@ -88,7 +70,6 @@ export default function ReservationPage() {
       const data: ReservationDetail = await res.json();
       setReservation(data);
 
-      // Calculate time left
       if (data.status === "PENDING") {
         const expiresAt = new Date(data.expiresAt).getTime();
         const now = Date.now();
@@ -111,20 +92,17 @@ export default function ReservationPage() {
 
   // Countdown timer
   useEffect(() => {
-    if (
-      !reservation ||
-      reservation.status !== "PENDING" ||
-      hasExpired
-    ) {
+    if (!reservation || reservation.status !== "PENDING" || hasExpired) {
       return;
     }
 
     timerRef.current = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
-          // Timer hit zero
           if (timerRef.current) clearInterval(timerRef.current);
           setHasExpired(true);
+          setShakeTimer(true);
+          setTimeout(() => setShakeTimer(false), 500);
           return 0;
         }
         return prev - 1;
@@ -174,6 +152,10 @@ export default function ReservationPage() {
       setReservation((prev) =>
         prev ? { ...prev, status: data.status } : null
       );
+      
+      // Update local storage count
+      window.dispatchEvent(new Event("stockvault_reservation_change"));
+
       toast.success("Purchase confirmed!", {
         description: "Your order has been placed successfully.",
       });
@@ -195,10 +177,11 @@ export default function ReservationPage() {
 
       const data = await res.json();
       setReservation((prev) =>
-        prev
-          ? { ...prev, status: data.status ?? "RELEASED" }
-          : null
+        prev ? { ...prev, status: data.status ?? "RELEASED" } : null
       );
+
+      // Update local storage count
+      window.dispatchEvent(new Event("stockvault_reservation_change"));
 
       if (!isAutoExpiry) {
         toast.success("Reservation cancelled", {
@@ -216,35 +199,70 @@ export default function ReservationPage() {
     }
   };
 
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(id);
+    setIsCopied(true);
+    toast.success("ID copied to clipboard!");
+    setTimeout(() => setIsCopied(false), 2000);
+  };
+
   if (loading) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-12 sm:px-6">
-        <div className="skeleton h-8 w-48 mb-8" />
-        <div className="rounded-2xl border border-border bg-card p-8">
-          <div className="skeleton h-20 w-20 rounded-full mx-auto mb-6" />
-          <div className="skeleton h-6 w-64 mx-auto mb-3" />
-          <div className="skeleton h-4 w-48 mx-auto mb-8" />
-          <div className="space-y-4">
-            <div className="skeleton h-16 w-full" />
-            <div className="skeleton h-16 w-full" />
-            <div className="skeleton h-12 w-full" />
+      <div className="mx-auto max-w-2xl px-4 py-16 sm:px-6 bg-[#0F0F13] min-h-screen text-[#F1F1F5]">
+        <div className="skeleton h-8 w-44 mb-8 bg-[#1A1A24]" />
+        <div className="rounded-3xl border border-[#2A2A3A] bg-[#1A1A24] p-8 space-y-6 shadow-xl">
+          <div className="skeleton h-28 w-28 rounded-full mx-auto bg-[#2A2A3A]" />
+          <div className="skeleton h-8 w-60 mx-auto bg-[#2A2A3A]" />
+          <div className="skeleton h-4 w-40 mx-auto bg-[#2A2A3A]" />
+          <div className="space-y-3 pt-6">
+            <div className="skeleton h-16 w-full bg-[#2A2A3A]" />
+            <div className="skeleton h-16 w-full bg-[#2A2A3A]" />
           </div>
         </div>
       </div>
     );
   }
 
+  // 410 Expired Full Page State
+  if (hasExpired && reservation?.status === "RELEASED") {
+    return (
+      <div className="mx-auto max-w-2xl px-4 py-20 text-center bg-[#0F0F13] min-h-screen text-[#F1F1F5] flex flex-col justify-center items-center">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9, rotate: -10 }}
+          animate={{ opacity: 1, scale: 1, rotate: 0 }}
+          className="rounded-3xl border border-[#EF4444]/20 bg-[#1A1A24] p-8 max-w-md w-full shadow-2xl flex flex-col items-center"
+        >
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-[#EF4444]/10 border border-[#EF4444]/20 mb-5">
+            <Clock className="h-8 w-8 text-[#EF4444]" />
+          </div>
+          <h2 className="text-xl font-bold text-white mb-2">Reservation Expired</h2>
+          <p className="text-[#8B8B9E] text-sm mb-6 leading-relaxed">
+            This reservation has expired. The units have been returned to stock and made available for other users.
+          </p>
+          <a
+            href="/"
+            className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#6366F1] to-indigo-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-600/20 hover:from-indigo-500 hover:to-indigo-500 transition-all active:scale-95 cursor-pointer"
+          >
+            Browse Products
+          </a>
+        </motion.div>
+      </div>
+    );
+  }
+
   if (!reservation) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-20 text-center">
-        <div className="text-5xl mb-4">🔍</div>
-        <h2 className="text-xl font-semibold mb-2">Reservation not found</h2>
-        <p className="text-muted-foreground mb-6">
-          This reservation may have been removed or doesn&apos;t exist.
+      <div className="mx-auto max-w-2xl px-4 py-20 text-center bg-[#0F0F13] min-h-screen text-[#F1F1F5] flex flex-col justify-center items-center">
+        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-white/5 border border-white/10 mb-5">
+          <XCircle className="h-8 w-8 text-[#EF4444]" />
+        </div>
+        <h2 className="text-xl font-bold text-white mb-2">Reservation Not Found</h2>
+        <p className="text-[#8B8B9E] mb-6 max-w-xs text-sm">
+          This reservation could not be located or may have been deleted.
         </p>
         <a
           href="/"
-          className="inline-flex rounded-lg bg-primary px-6 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-all"
+          className="rounded-xl bg-gradient-to-r from-[#6366F1] to-indigo-600 px-5 py-3 text-sm font-bold text-white shadow-lg hover:from-indigo-500 hover:to-indigo-500 transition-all cursor-pointer"
         >
           Back to Products
         </a>
@@ -252,257 +270,294 @@ export default function ReservationPage() {
     );
   }
 
-  const statusConfig = getStatusConfig(reservation.status);
   const isPending = reservation.status === "PENDING" && !hasExpired;
-  const isTerminal =
-    reservation.status === "CONFIRMED" || reservation.status === "RELEASED";
+  
+  // Color configuration based on time remaining
+  let timerColor = "#22C55E";
+  let timerTextClass = "text-[#22C55E]";
+  if (timeLeft <= 60) {
+    timerColor = "#EF4444";
+    timerTextClass = "text-[#EF4444]";
+  } else if (timeLeft <= 180) {
+    timerColor = "#F59E0B";
+    timerTextClass = "text-[#F59E0B]";
+  }
+
+  // Calculate SVG stroke offset (circumference of 60 radius circle is 377)
+  const strokeDashoffset = 377 - (Math.min(600, timeLeft) / 600) * 377;
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-12 sm:px-6 animate-fade-in">
+    <div className="mx-auto max-w-2xl px-4 py-12 sm:px-6 bg-[#0F0F13] min-h-screen text-[#F1F1F5]">
       {/* Back Link */}
       <a
         href="/"
-        className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-8"
+        className="inline-flex items-center gap-2 text-sm text-[#8B8B9E] hover:text-white transition-colors mb-8 group"
       >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="m15 18-6-6 6-6" />
-        </svg>
+        <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1" />
         Back to Products
       </a>
 
-      {/* Main Card */}
-      <div className="rounded-2xl border border-border bg-card overflow-hidden">
-        {/* Status Banner */}
-        <div
-          className={`${statusConfig.bg} border-b ${statusConfig.border} px-6 py-4`}
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <span className="text-2xl">{statusConfig.icon}</span>
-              <div>
-                <h2 className={`text-lg font-semibold ${statusConfig.color}`}>
-                  {reservation.status === "CONFIRMED"
-                    ? "Purchase Confirmed!"
-                    : reservation.status === "RELEASED"
-                    ? hasExpired
-                      ? "Reservation Expired"
-                      : "Reservation Cancelled"
-                    : "Reservation Active"}
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  ID: {reservation.id}
-                </p>
-              </div>
+      {/* Main Reservation Card */}
+      <div className="rounded-3xl border border-[#2A2A3A] bg-[#1A1A24] overflow-hidden shadow-2xl">
+        
+        {/* Status Badge Header */}
+        <div className="border-b border-[#2A2A3A] bg-[#0F0F13]/40 px-6 py-5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {reservation.status === "PENDING" && (
+              <span className="flex h-2.5 w-2.5 rounded-full bg-[#F59E0B] animate-pulse" />
+            )}
+            {reservation.status === "CONFIRMED" && (
+              <CheckCircle2 className="h-5 w-5 text-[#22C55E]" />
+            )}
+            {reservation.status === "RELEASED" && (
+              <XCircle className="h-5 w-5 text-[#EF4444]" />
+            )}
+            <div>
+              <span className="text-xs uppercase tracking-widest text-[#8B8B9E] font-bold">
+                Reservation Status
+              </span>
+              <h2 className="text-base font-extrabold text-white mt-0.5">
+                {reservation.status === "PENDING" && "Awaiting Payment"}
+                {reservation.status === "CONFIRMED" && "Purchase Confirmed"}
+                {reservation.status === "RELEASED" && "Reservation Released"}
+              </h2>
             </div>
-            <span
-              className={`rounded-full ${statusConfig.bg} ${statusConfig.color} ${statusConfig.border} border px-3 py-1 text-xs font-semibold uppercase tracking-wider`}
-            >
-              {statusConfig.label}
-            </span>
           </div>
+          
+          <span className={`px-3 py-1 rounded-full text-xs font-extrabold uppercase tracking-wider border ${
+            reservation.status === "PENDING"
+              ? "bg-[#F59E0B]/10 border-[#F59E0B]/20 text-[#F59E0B]"
+              : reservation.status === "CONFIRMED"
+              ? "bg-[#22C55E]/10 border-[#22C55E]/20 text-[#22C55E]"
+              : "bg-[#EF4444]/10 border-[#EF4444]/20 text-[#EF4444]"
+          }`}>
+            {reservation.status}
+          </span>
         </div>
 
-        <div className="p-6 space-y-6">
-          {/* Countdown Timer — only for PENDING */}
+        <div className="p-6 sm:p-8 space-y-8">
+          
+          {/* Circular Countdown Timer */}
           {isPending && (
-            <div className="text-center py-4">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
-                Time Remaining
-              </p>
-              <div
-                className={`inline-flex items-center justify-center text-5xl font-mono font-bold tracking-widest ${
-                  timeLeft <= 60 ? "text-destructive" : timeLeft <= 180 ? "text-warning" : "text-foreground"
-                }`}
-              >
-                {formatCountdown(timeLeft)}
-              </div>
-              {timeLeft <= 60 && timeLeft > 0 && (
-                <p className="text-sm text-destructive mt-2 animate-pulse">
-                  ⚠️ Hurry! Your reservation is about to expire
-                </p>
-              )}
-              {/* Progress Bar */}
-              <div className="mt-4 mx-auto max-w-xs">
-                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all duration-1000 ease-linear ${
-                      timeLeft <= 60
-                        ? "bg-destructive"
-                        : timeLeft <= 180
-                        ? "bg-warning"
-                        : "bg-primary"
-                    }`}
-                    style={{
-                      width: `${Math.min(100, (timeLeft / 600) * 100)}%`,
-                    }}
+            <div className="flex flex-col items-center py-4">
+              <div className={`relative flex items-center justify-center ${shakeTimer ? "animate-shake" : ""}`}>
+                {/* SVG Progress Ring */}
+                <svg className="w-40 h-40 transform -rotate-90">
+                  <circle
+                    cx="80"
+                    cy="80"
+                    r="60"
+                    className="stroke-[#2A2A3A]"
+                    strokeWidth="8"
+                    fill="transparent"
                   />
+                  <motion.circle
+                    cx="80"
+                    cy="80"
+                    r="60"
+                    stroke={timerColor}
+                    strokeWidth="8"
+                    fill="transparent"
+                    strokeDasharray="377"
+                    animate={{ strokeDashoffset }}
+                    transition={{ duration: 1, ease: "linear" }}
+                    strokeLinecap="round"
+                  />
+                </svg>
+                
+                {/* Time Display */}
+                <div className="absolute flex flex-col items-center justify-center">
+                  <span className={`text-3xl font-extrabold font-mono tracking-tight ${timerTextClass}`}>
+                    {formatCountdown(timeLeft)}
+                  </span>
+                  <span className="text-[10px] font-bold text-[#8B8B9E] uppercase tracking-wider mt-1">
+                    Hold Window
+                  </span>
+                </div>
+              </div>
+
+              {timeLeft <= 60 && timeLeft > 0 && (
+                <motion.p
+                  animate={{ scale: [1, 1.05, 1] }}
+                  transition={{ repeat: Infinity, duration: 1 }}
+                  className="text-xs text-[#EF4444] font-semibold mt-4 text-center"
+                >
+                  ⚠️ Hurry! Stock releases in less than a minute
+                </motion.p>
+              )}
+            </div>
+          )}
+
+          {/* Confirmed State Graphic */}
+          {reservation.status === "CONFIRMED" && (
+            <motion.div 
+              initial={{ scale: 0.95 }}
+              animate={{ scale: 1 }}
+              className="text-center py-6 bg-[#22C55E]/5 border border-[#22C55E]/10 rounded-2xl p-6"
+            >
+              <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-[#22C55E]/10 border border-[#22C55E]/20 mb-3.5">
+                <CheckCircle2 className="h-6 w-6 text-[#22C55E]" />
+              </div>
+              <h3 className="text-lg font-bold text-white mb-1">Purchase Finalized</h3>
+              <p className="text-sm text-[#8B8B9E] leading-relaxed max-w-sm mx-auto">
+                Your checkout is complete! The stock units have been securely locked and assigned to your order.
+              </p>
+            </motion.div>
+          )}
+
+          {/* Released State Graphic */}
+          {reservation.status === "RELEASED" && (
+            <motion.div 
+              initial={{ scale: 0.95 }}
+              animate={{ scale: 1 }}
+              className="text-center py-6 bg-[#EF4444]/5 border border-[#EF4444]/10 rounded-2xl p-6"
+            >
+              <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-[#EF4444]/10 border border-[#EF4444]/20 mb-3.5">
+                <XCircle className="h-6 w-6 text-[#EF4444]" />
+              </div>
+              <h3 className="text-lg font-bold text-white mb-1">Stock Released</h3>
+              <p className="text-sm text-[#8B8B9E] leading-relaxed max-w-sm mx-auto">
+                This reservation has been cancelled or has expired. All units have safely returned to general warehouse stock.
+              </p>
+            </motion.div>
+          )}
+
+          {/* Details Card */}
+          <div className="bg-[#0F0F13]/60 border border-[#2A2A3A] rounded-2xl p-5 space-y-4">
+            <h4 className="text-xs uppercase tracking-widest text-[#8B8B9E] font-bold">
+              Reservation Details
+            </h4>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="flex gap-3">
+                <Box className="h-5 w-5 text-[#6366F1] shrink-0" />
+                <div>
+                  <p className="text-xs text-[#8B8B9E] font-medium">Product</p>
+                  <p className="text-sm font-bold text-white mt-0.5">
+                    {reservation.product?.name ?? "Unknown Product"}
+                  </p>
+                  <p className="text-xs text-[#8B8B9E] line-clamp-1 mt-0.5">
+                    {reservation.product?.description}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <Building className="h-5 w-5 text-[#6366F1] shrink-0" />
+                <div>
+                  <p className="text-xs text-[#8B8B9E] font-medium">Warehouse</p>
+                  <p className="text-sm font-bold text-white mt-0.5">
+                    {reservation.warehouse?.name ?? "Unknown Warehouse"}
+                  </p>
+                  <p className="text-xs text-[#8B8B9E] mt-0.5">
+                    {reservation.warehouse?.location}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <TrendingUp className="h-5 w-5 text-[#6366F1] shrink-0" />
+                <div>
+                  <p className="text-xs text-[#8B8B9E] font-medium">Quantity Reserved</p>
+                  <p className="text-lg font-bold font-mono text-white mt-0.5">
+                    {reservation.quantity} unit{reservation.quantity > 1 ? "s" : ""}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <Calendar className="h-5 w-5 text-[#6366F1] shrink-0" />
+                <div>
+                  <p className="text-xs text-[#8B8B9E] font-medium">Expires At</p>
+                  <p className="text-sm font-semibold text-white mt-0.5">
+                    {new Date(reservation.expiresAt).toLocaleTimeString()} ({new Date(reservation.expiresAt).toLocaleDateString()})
+                  </p>
                 </div>
               </div>
             </div>
-          )}
 
-          {/* Expired message when timer hits 0 */}
-          {hasExpired && reservation.status !== "CONFIRMED" && (
-            <div className="text-center py-4">
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-destructive/10 mb-3">
-                <span className="text-3xl">⏰</span>
-              </div>
-              <p className="text-lg font-semibold text-destructive">
-                This reservation has expired
-              </p>
-              <p className="text-sm text-muted-foreground mt-1">
-                The stock has been released back to inventory.
-              </p>
-            </div>
-          )}
-
-          {/* Confirmed success state */}
-          {reservation.status === "CONFIRMED" && (
-            <div className="text-center py-4">
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-success/10 mb-3">
-                <span className="text-3xl">🎉</span>
-              </div>
-              <p className="text-lg font-semibold text-success">
-                Purchase confirmed!
-              </p>
-              <p className="text-sm text-muted-foreground mt-1">
-                Your order has been placed successfully.
-              </p>
-            </div>
-          )}
-
-          {/* Reservation Details */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="rounded-xl border border-border bg-background/50 p-4">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
-                Product
-              </p>
-              <p className="text-sm font-semibold text-foreground">
-                {reservation.product?.name ?? "Unknown Product"}
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
-                {reservation.product?.description}
-              </p>
-            </div>
-            <div className="rounded-xl border border-border bg-background/50 p-4">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
-                Warehouse
-              </p>
-              <p className="text-sm font-semibold text-foreground">
-                {reservation.warehouse?.name ?? "Unknown Warehouse"}
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {reservation.warehouse?.location}
-              </p>
-            </div>
-            <div className="rounded-xl border border-border bg-background/50 p-4">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
-                Quantity
-              </p>
-              <p className="text-2xl font-bold font-mono text-foreground">
-                {reservation.quantity}
-              </p>
-            </div>
-            <div className="rounded-xl border border-border bg-background/50 p-4">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
-                Reserved At
-              </p>
-              <p className="text-sm font-semibold text-foreground">
-                {new Date(reservation.createdAt).toLocaleString()}
-              </p>
+            {/* Monospace Copyable ID */}
+            <div className="pt-2 border-t border-[#2A2A3A] flex items-center justify-between gap-3 text-xs bg-[#1A1A24]/40 p-2.5 rounded-xl">
+              <span className="font-mono text-[#8B8B9E] truncate">
+                ID: {reservation.id}
+              </span>
+              <button
+                type="button"
+                onClick={copyToClipboard}
+                className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#0F0F13] border border-[#2A2A3A] text-[#8B8B9E] hover:text-white transition-colors"
+                title="Copy Reservation ID"
+              >
+                {isCopied ? (
+                  <>
+                    <Check className="h-3.5 w-3.5 text-[#22C55E]" />
+                    <span className="text-[10px] font-bold text-[#22C55E]">Copied</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5" />
+                    <span className="text-[10px] font-bold">Copy</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
 
-          {/* Action Buttons — only for PENDING and not expired */}
-          {isPending && (
-            <div className="flex gap-3 pt-2">
-              <button
-                onClick={() => handleRelease()}
-                disabled={actionLoading !== null}
-                className="flex-1 rounded-lg border border-border bg-background px-4 py-3 text-sm font-medium text-foreground hover:bg-muted transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          {/* Action Buttons — only for PENDING */}
+          <AnimatePresence>
+            {isPending && (
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="flex flex-col sm:flex-row gap-3 pt-2"
               >
-                {actionLoading === "release" ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <svg
-                      className="h-4 w-4 animate-spin"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                    >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                      />
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                      />
-                    </svg>
-                    Cancelling...
-                  </span>
-                ) : (
-                  "Cancel Reservation"
-                )}
-              </button>
-              <button
-                onClick={handleConfirm}
-                disabled={actionLoading !== null}
-                className="flex-1 rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-all active:scale-95 shadow-lg shadow-primary/20 animate-pulse-glow disabled:opacity-50 disabled:cursor-not-allowed disabled:animate-none"
-              >
-                {actionLoading === "confirm" ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <svg
-                      className="h-4 w-4 animate-spin"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                    >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                      />
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                      />
-                    </svg>
-                    Confirming...
-                  </span>
-                ) : (
-                  "Confirm Purchase"
-                )}
-              </button>
-            </div>
-          )}
+                <button
+                  type="button"
+                  onClick={() => handleRelease()}
+                  disabled={actionLoading !== null}
+                  className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-[#2A2A3A] bg-[#1A1A24] px-4 py-3 text-sm font-semibold text-white hover:bg-white/5 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer"
+                >
+                  {actionLoading === "release" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                  Cancel Reservation
+                </button>
+                
+                <button
+                  type="button"
+                  onClick={handleConfirm}
+                  disabled={actionLoading !== null}
+                  className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#6366F1] to-indigo-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-600/20 hover:from-indigo-500 hover:to-indigo-500 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer"
+                >
+                  {actionLoading === "confirm" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Lock className="h-4 w-4" />
+                  )}
+                  Confirm Purchase
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-          {/* Back to products after terminal state */}
-          {isTerminal && (
-            <div className="pt-2">
+          {/* Back button post terminal state */}
+          {!isPending && (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="pt-2"
+            >
               <a
                 href="/"
-                className="flex items-center justify-center rounded-lg border border-border bg-background px-4 py-3 text-sm font-medium text-foreground hover:bg-muted transition-all"
+                className="flex items-center justify-center rounded-xl border border-[#2A2A3A] bg-[#1A1A24] px-4 py-3.5 text-sm font-semibold text-white hover:bg-white/5 transition-all"
               >
-                ← Browse More Products
+                ← Browse Other Products
               </a>
-            </div>
+            </motion.div>
           )}
+
         </div>
       </div>
     </div>
